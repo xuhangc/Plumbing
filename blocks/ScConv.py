@@ -1,31 +1,3 @@
-# https://github.com/cheng-haha/ScConv
-
-"""
-GroupBatchnorm2d：
-
-这是一个自定义的批量归一化（Batch Normalization）模块。
-它支持将通道分组，即将通道分成多个组，每个组共享统计信息。
-参数包括 c_num（通道数），group_num（分组数），和 eps（防止除以零的小值）。
-在前向传播中，它首先将输入张量按组进行划分，并在每个组内计算均值和标准差，然后使用这些统计信息来对输入进行标准化。
-SRU（Self-Reconstruction Unit）：
-
-这是一个自定义的模块，用于增强神经网络的特征表示。
-参数包括 oup_channels（输出通道数），group_num（分组数），gate_treshold（门控阈值），和 torch_gn（是否使用PyTorch的GroupNorm）。
-在前向传播中，它首先应用分组归一化（Group Normalization），然后通过门控机制（Gate）重新构造输入特征。
-门控机制根据输入特征的分布和权重来决定哪些信息被保留，哪些信息被舍弃。
-CRU（Channel Reorganization Unit）：
-
-这是一个自定义的通道重组模块，用于重新组织神经网络的通道。
-参数包括 op_channel（输出通道数），alpha（通道划分比例），squeeze_radio（压缩比例），group_size（分组大小），和 group_kernel_size（分组卷积核大小）。
-在前向传播中，它首先将输入通道分成两部分，然后对每部分进行压缩（squeeze）操作和分组卷积（Group Convolution）操作，最后将结果进行融合。
-ScConv（Scale and Channel Convolution）：
-
-这是一个结合了SRU和CRU的模块，用于增强特征表示并进行通道重组。
-参数包括 SRU 和 CRU 模块的参数。
-在前向传播中，它首先应用SRU模块，然后应用CRU模块，以改善特征表示并重新组织通道。
-这些自定义模块可以用于构建更复杂的神经网络，以满足特定的任务和需求。模块中的操作和机制可以帮助提高神经网络的性能和泛化能力。
-"""
-
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
@@ -70,7 +42,6 @@ class SRU(nn.Module):
     def forward(self, x):
         gn_x = self.gn(x)
         w_gamma = self.gn.weight / torch.sum(self.gn.weight)
-        w_gamma = w_gamma.view(1, -1, 1, 1)
         reweigts = self.sigomid(gn_x * w_gamma)
         # Gate
         info_mask = reweigts >= self.gate_treshold
@@ -151,13 +122,19 @@ class ScConv(nn.Module):
         x = self.CRU(x)
         return x
 
-
-# 输入 N C H W,  输出 N C H W
 if __name__ == '__main__':
-    # x = torch.randn(1, 32, 16, 16)
-    x = torch.randn(1, 128, 256, 256)
-    model = ScConv(128)
-    x = model(x)
-    # x = torch.unsqueeze(x[:, 0], 1)
-    # print(type(x))
-    print(x.shape)
+    x = torch.randn(32, 60, 32, 32)
+    Conv_1 = nn.Conv2d(60, 64, kernel_size=1, stride=1, padding=0)
+    x = Conv_1(x)
+    model = ScConv(64)
+
+    output = model(x)
+
+    Conv_2 = nn.Conv2d(64, 60, kernel_size=1, stride=1, padding=0)
+
+    print(output.shape)
+
+    output = Conv_2(output)
+
+    print(output.shape)
+
