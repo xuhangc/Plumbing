@@ -32,6 +32,6 @@ class LSKblock(nn.Module):
 # 输入 N C H W,  输出 N C H W
 if __name__ == '__main__':
     block = LSKblock(64).cuda()
-    input = torch.rand(1, 64, 64, 64).cuda()
+    input = torch.rand(3, 64, 32, 32).cuda()
     output = block(input)
     print(input.size(), output.size())

@@ -1,3 +1,17 @@
+# https://github.com/lancopku/MUSE
+
+"""
+以下是该模块的主要组件和操作：
+
+多头自注意力：通过输入的queries、keys和values，首先使用线性变换(fc_q, fc_k和fc_v)将它们映射到不同的子空间，然后计算多头自注意力得分，并使用softmax函数进行归一化。最后，使用这些得分加权values以获得最终的输出。
+
+动态参数的卷积融合：在多头自注意力的输出上应用卷积操作，这些卷积操作具有不同的kernel_size（1、3和5），并使用动态参数(dy_paras)来决定它们的权重。这样，可以通过调整这些参数来动态控制不同kernel_size的卷积操作的贡献。
+
+初始化权重：通过init_weights方法来初始化模块中的权重。
+
+前向传播：根据输入的queries、keys、values以及可选的注意力掩码(attention_mask)和注意力权重(attention_weights)，计算多头自注意力的输出，并与动态参数的卷积融合的结果相加以获得最终输出。
+"""
+
 import numpy as np
 import torch
 from torch import nn
@@ -98,7 +112,8 @@ class MUSEAttention(nn.Module):
 
 
 if __name__ == '__main__':
-    block = MUSEAttention(d_model=512, d_k=512, d_v=512, h=8).cuda()
-    input = torch.rand(64, 64, 512).cuda()
+    block = MUSEAttention(d_model=256, d_k=256, d_v=256, h=256).cuda()
+    # input = torch.rand(64, 64, 512).cuda()
+    input = torch.rand(1, 128, 256, 256).cuda()
     output = block(input, input, input)
     print(input.size(), output.size())

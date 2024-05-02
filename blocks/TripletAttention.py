@@ -1,3 +1,29 @@
+# https://github.com/mindspore-courses/External-Attention-MindSpore/blob/main/model/attention/TripletAttention.py
+
+"""
+以下是这些模块的主要特点和作用：
+
+BasicConv 模块：
+
+这是一个基本的卷积模块，用于进行卷积操作，包括卷积、批归一化（可选）、ReLU 激活函数（可选）。
+可以通过参数来控制是否使用批归一化和ReLU激活函数。
+ZPool 模块：
+
+这是一个自定义的池化操作，将输入的特征图进行最大池化和平均池化，然后将它们拼接在一起。
+AttentionGate 模块：
+
+这个模块实现了一个注意力门控机制，用于学习特征图的注意力权重。
+首先通过 ZPool 操作将输入的特征图进行池化。
+然后应用一个卷积层，该卷积层输出一个注意力权重，通过 Sigmoid 激活函数将其归一化。
+最后，将输入特征图与注意力权重相乘，以得到加权的特征图。
+TripletAttention 模块：
+
+这个模块实现了一种三重注意力机制，用于学习特征图的全局和局部信息。
+该模块包括三个 AttentionGate 模块，分别用于通道维度（c）、高度维度（h）和宽度维度（w）的注意力权重学习。
+可以通过参数 no_spatial 来控制是否忽略空间维度。
+最终，将三个注意力权重加权平均，以得到最终的特征图。
+"""
+
 import torch
 import torch.nn as nn
 

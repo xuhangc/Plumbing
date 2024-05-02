@@ -1,3 +1,15 @@
+# https://github.com/apple/ml-cvnets
+
+"""
+以下是该模块的主要组件和操作：
+
+自注意力计算：使用线性变换(fc_i, fc_k, fc_v和fc_o)将输入映射到不同的子空间，并计算权重(weight_i)来为每个查询分配注意力权重。注意力权重通过对fc_i的输出进行softmax操作得到，然后用于加权fc_k(input)的输出，得到context_score。接下来，通过对context_score进行求和，以获得一个上下文向量(context_vector)，该向量用于加权fc_v(input)的输出。最后，对v进行线性变换(fc_o)以获得最终的输出。
+
+初始化权重：通过init_weights方法来初始化模块中的权重。
+
+前向传播：根据输入执行自注意力计算，返回计算得到的注意力输出。
+"""
+
 import numpy as np
 import torch
 from torch import nn
@@ -56,7 +68,8 @@ class MobileViTv2Attention(nn.Module):
 
 
 if __name__ == '__main__':
-    block = MobileViTv2Attention(d_model=512).cuda()
-    input = torch.rand(64, 64, 512).cuda()
+    block = MobileViTv2Attention(d_model=256)
+    # input = torch.rand(64, 64, 512).cuda()
+    input = torch.rand(1, 128, 256, 256)
     output = block(input)
     print(input.size(), output.size())
