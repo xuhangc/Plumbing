@@ -12,7 +12,7 @@ import numpy as np
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 from functools import partial
 from einops import rearrange
-from prebn import RepBN, LinearNorm
+from prepbn import RepBN, LinearNorm
 
 linearnorm = partial(LinearNorm, norm1=nn.LayerNorm, norm2=RepBN)
 

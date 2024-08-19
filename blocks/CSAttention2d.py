@@ -21,7 +21,7 @@ class CSA2D(nn.Module):
         xl_afterconv = self.W_x1(x_l)
 
         if first_layer_afterconv.size() != xl_afterconv.size():
-            raise ValueError(f"形状不匹配: {first_layer_afterconv.size()} vs {xl_afterconv.size()}")
+            first_layer_afterconv = F.interpolate(first_layer_afterconv, size=xl_afterconv.size()[2:], mode='bilinear', align_corners=True)
 
         att_map_first = self.sig(self.psi1(self.relu(first_layer_afterconv + xl_afterconv)))
         xl_after_first_att = x_l * att_map_first
@@ -31,11 +31,10 @@ class CSA2D(nn.Module):
         xl_after_first_att_and_conv = self.W_x2(xl_after_first_att)
 
         if xg_afterconv.size() != xl_after_first_att_and_conv.size():
-            raise ValueError(f"形状不匹配: {xg_afterconv.size()} vs {xl_after_first_att_and_conv.size()}")
+            xl_after_first_att_and_conv = F.interpolate(xl_after_first_att_and_conv, size=xg_afterconv.size()[2:], mode='bilinear', align_corners=True)
 
         att_map_second = self.sig(self.psi2(self.relu(xg_afterconv + xl_after_first_att_and_conv)))
-        att_map_second_upsample = F.interpolate(att_map_second, size=x_l.size()[2:], mode='bilinear',
-                                                align_corners=True)
+        att_map_second_upsample = F.interpolate(att_map_second, size=x_l.size()[2:], mode='bilinear', align_corners=True)
         out = xl_after_first_att * att_map_second_upsample
         return out
 
@@ -51,7 +50,7 @@ if __name__ == '__main__':
 
     x_l = torch.rand(batch_size, 128, height, width)  # 局部特征图输入
     x_g = torch.rand(batch_size, 256, reduced_height, reduced_width)  # 全局特征图输入
-    first_layer_f = torch.rand(batch_size, 64, height, width)  # 第一层输入特征图
+    first_layer_f = torch.rand(batch_size, 64, 32, 32)  # 第一层输入特征图
 
     # 前向传播
     output = csa_module(x_l, x_g, first_layer_f)

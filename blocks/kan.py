@@ -1,22 +1,22 @@
 import torch
 import torch.nn.functional as F
 import math
-
-
+# https://github.com/Blealtan/efficient-kan/blob/master/src/efficient_kan/kan.py
+# https://arxiv.org/abs/2404.19756
 class KANLinear(torch.nn.Module):
     def __init__(
-        self,
-        in_features,
-        out_features,
-        grid_size=5,
-        spline_order=3,
-        scale_noise=0.1,
-        scale_base=1.0,
-        scale_spline=1.0,
-        enable_standalone_scale_spline=True,
-        base_activation=torch.nn.SiLU,
-        grid_eps=0.02,
-        grid_range=[-1, 1],
+            self,
+            in_features,
+            out_features,
+            grid_size=5,
+            spline_order=3,
+            scale_noise=0.1,
+            scale_base=1.0,
+            scale_spline=1.0,
+            enable_standalone_scale_spline=True,
+            base_activation=torch.nn.SiLU,
+            grid_eps=0.02,
+            grid_range=[-1, 1],
     ):
         super(KANLinear, self).__init__()
         self.in_features = in_features
@@ -27,11 +27,11 @@ class KANLinear(torch.nn.Module):
         h = (grid_range[1] - grid_range[0]) / grid_size
         grid = (
             (
-                torch.arange(-spline_order, grid_size + spline_order + 1) * h
-                + grid_range[0]
+                    torch.arange(-spline_order, grid_size + spline_order + 1) * h
+                    + grid_range[0]
             )
-            .expand(in_features, -1)
-            .contiguous()
+                .expand(in_features, -1)
+                .contiguous()
         )
         self.register_buffer("grid", grid)
 
@@ -57,17 +57,17 @@ class KANLinear(torch.nn.Module):
         torch.nn.init.kaiming_uniform_(self.base_weight, a=math.sqrt(5) * self.scale_base)
         with torch.no_grad():
             noise = (
-                (
-                    torch.rand(self.grid_size + 1, self.in_features, self.out_features)
-                    - 1 / 2
-                )
-                * self.scale_noise
-                / self.grid_size
+                    (
+                            torch.rand(self.grid_size + 1, self.in_features, self.out_features)
+                            - 1 / 2
+                    )
+                    * self.scale_noise
+                    / self.grid_size
             )
             self.spline_weight.data.copy_(
                 (self.scale_spline if not self.enable_standalone_scale_spline else 1.0)
                 * self.curve2coeff(
-                    self.grid.T[self.spline_order : -self.spline_order],
+                    self.grid.T[self.spline_order: -self.spline_order],
                     noise,
                 )
             )
@@ -94,14 +94,14 @@ class KANLinear(torch.nn.Module):
         bases = ((x >= grid[:, :-1]) & (x < grid[:, 1:])).to(x.dtype)
         for k in range(1, self.spline_order + 1):
             bases = (
-                (x - grid[:, : -(k + 1)])
-                / (grid[:, k:-1] - grid[:, : -(k + 1)])
-                * bases[:, :, :-1]
-            ) + (
-                (grid[:, k + 1 :] - x)
-                / (grid[:, k + 1 :] - grid[:, 1:(-k)])
-                * bases[:, :, 1:]
-            )
+                            (x - grid[:, : -(k + 1)])
+                            / (grid[:, k:-1] - grid[:, : -(k + 1)])
+                            * bases[:, :, :-1]
+                    ) + (
+                            (grid[:, k + 1:] - x)
+                            / (grid[:, k + 1:] - grid[:, 1:(-k)])
+                            * bases[:, :, 1:]
+                    )
 
         assert bases.size() == (
             x.size(0),
@@ -151,14 +151,19 @@ class KANLinear(torch.nn.Module):
         )
 
     def forward(self, x: torch.Tensor):
-        assert x.dim() == 2 and x.size(1) == self.in_features
+        assert x.size(-1) == self.in_features
+        original_shape = x.shape
+        x = x.reshape(-1, self.in_features)
 
         base_output = F.linear(self.base_activation(x), self.base_weight)
         spline_output = F.linear(
             self.b_splines(x).view(x.size(0), -1),
             self.scaled_spline_weight.view(self.out_features, -1),
         )
-        return base_output + spline_output
+        output = base_output + spline_output
+
+        output = output.reshape(*original_shape[:-1], self.out_features)
+        return output
 
     @torch.no_grad()
     def update_grid(self, x: torch.Tensor, margin=0.01):
@@ -184,12 +189,12 @@ class KANLinear(torch.nn.Module):
 
         uniform_step = (x_sorted[-1] - x_sorted[0] + 2 * margin) / self.grid_size
         grid_uniform = (
-            torch.arange(
-                self.grid_size + 1, dtype=torch.float32, device=x.device
-            ).unsqueeze(1)
-            * uniform_step
-            + x_sorted[0]
-            - margin
+                torch.arange(
+                    self.grid_size + 1, dtype=torch.float32, device=x.device
+                ).unsqueeze(1)
+                * uniform_step
+                + x_sorted[0]
+                - margin
         )
 
         grid = self.grid_eps * grid_uniform + (1 - self.grid_eps) * grid_adaptive
@@ -227,23 +232,23 @@ class KANLinear(torch.nn.Module):
         p = l1_fake / regularization_loss_activation
         regularization_loss_entropy = -torch.sum(p * p.log())
         return (
-            regularize_activation * regularization_loss_activation
-            + regularize_entropy * regularization_loss_entropy
+                regularize_activation * regularization_loss_activation
+                + regularize_entropy * regularization_loss_entropy
         )
 
 
 class KAN(torch.nn.Module):
     def __init__(
-        self,
-        layers_hidden,
-        grid_size=5,
-        spline_order=3,
-        scale_noise=0.1,
-        scale_base=1.0,
-        scale_spline=1.0,
-        base_activation=torch.nn.SiLU,
-        grid_eps=0.02,
-        grid_range=[-1, 1],
+            self,
+            layers_hidden,
+            grid_size=5,
+            spline_order=3,
+            scale_noise=0.1,
+            scale_base=1.0,
+            scale_spline=1.0,
+            base_activation=torch.nn.SiLU,
+            grid_eps=0.02,
+            grid_range=[-1, 1],
     ):
         super(KAN, self).__init__()
         self.grid_size = grid_size
@@ -278,3 +283,19 @@ class KAN(torch.nn.Module):
             layer.regularization_loss(regularize_activation, regularize_entropy)
             for layer in self.layers
         )
+
+
+if __name__ == '__main__':
+
+    kan_model = KAN(layers_hidden=[192, 64, 10]) #192与输入的c对应, 10与输出的c对应
+    # 创建输入张量
+    input_tensor = torch.randn(1, 3136, 192)  # 假设输入张量的形状为 (b, n, c)
+
+    # 打印输入张量的形状
+    print("输入张量的形状:", input_tensor.shape)
+
+    # 前向传播，获取输出张量
+    output_tensor = kan_model(input_tensor)
+
+    # 打印输出张量的形状
+    print("输出张量的形状:", output_tensor.shape)

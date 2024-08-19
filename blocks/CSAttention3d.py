@@ -30,9 +30,9 @@ xl_after_first_att_and_conv 使用 W_x2 处理 xl_after_first_att，将其下采
 使用 F.interpolate 将该注意力图上采样至 x_l 的尺寸。
 该上采样后的注意力图重新加权 xl_after_first_att，得到最终输出 out。
 """
-class CSA(nn.Module):
+class CSA3D(nn.Module):
     def __init__(self, channel_l, channel_g, init_channel=64):
-        super(CSA, self).__init__()
+        super(CSA3D, self).__init__()
         self.W_x1 = nn.Conv3d(channel_l, channel_l, kernel_size=1)
         self.W_x2 = nn.Conv3d(channel_l, channel_g, kernel_size=3, stride=2, padding=1)
         self.W_g1 = nn.Conv3d(init_channel, channel_l, kernel_size=3, stride=1, padding=1)
@@ -43,47 +43,46 @@ class CSA(nn.Module):
         self.sig = nn.Sigmoid()
 
     def forward(self, x_l, x_g, first_layer_f):
-        # First Attention Operation
+        # 第一次注意力操作
         first_layer_afterconv = self.W_g1(first_layer_f)
         xl_afterconv = self.W_x1(x_l)
 
         if first_layer_afterconv.size() != xl_afterconv.size():
-            raise ValueError(f"Shape mismatch: {first_layer_afterconv.size()} vs {xl_afterconv.size()}")
+            first_layer_afterconv = F.interpolate(first_layer_afterconv, size=xl_afterconv.size()[2:], mode='trilinear', align_corners=True)
 
         att_map_first = self.sig(self.psi1(self.relu(first_layer_afterconv + xl_afterconv)))
         xl_after_first_att = x_l * att_map_first
 
-        # Second Attention Operation
+        # 第二次注意力操作
         xg_afterconv = self.W_g2(x_g)
         xl_after_first_att_and_conv = self.W_x2(xl_after_first_att)
 
         if xg_afterconv.size() != xl_after_first_att_and_conv.size():
-            raise ValueError(f"Shape mismatch: {xg_afterconv.size()} vs {xl_after_first_att_and_conv.size()}")
+            xl_after_first_att_and_conv = F.interpolate(xl_after_first_att_and_conv, size=xg_afterconv.size()[2:], mode='trilinear', align_corners=True)
 
         att_map_second = self.sig(self.psi2(self.relu(xg_afterconv + xl_after_first_att_and_conv)))
-        att_map_second_upsample = F.interpolate(att_map_second, size=x_l.size()[2:], mode='trilinear')
+        att_map_second_upsample = F.interpolate(att_map_second, size=x_l.size()[2:], mode='trilinear', align_corners=True)
         out = xl_after_first_att * att_map_second_upsample
         return out
 
-
 if __name__ == '__main__':
-    # 实例化 CSA
-    csa_module = CSA(channel_l=128, channel_g=256, init_channel=64)
+    # 实例化 CSA3D
+    csa_module = CSA3D(channel_l=128, channel_g=256, init_channel=64)
 
     # 模拟输入，这里仅作为示例，使用具体的数值
     batch_size = 1
-    depth, height, width = 64, 128, 128  # x_l 的空间尺寸
-    reduced_depth, reduced_height, reduced_width = 32, 64, 64  # x_g 的空间尺寸，假设为 x_l 的一半
+    depth, height, width = 32, 128, 128  # x_l 的空间尺寸
+    reduced_depth, reduced_height, reduced_width = 16, 64, 64  # x_g 的空间尺寸，假设为 x_l 的一半
 
-    x_l = torch.rand(batch_size, 128, depth, height, width)  # 局部特征图输入，注意通道数与 csa_module 的 channel_l 匹配
-    x_g = torch.rand(batch_size, 256, reduced_depth, reduced_height, reduced_width)  # 全局特征图输入，注意通道数与 csa_module 的 channel_g 匹配
-    first_layer_f = torch.rand(batch_size, 64, depth, height, width)  # 第一层的输入特征图，注意通道数与 csa_module 的 init_channel 匹配
+    x_l = torch.rand(batch_size, 128, depth, height, width)  # 局部特征图输入
+    x_g = torch.rand(batch_size, 256, reduced_depth, reduced_height, reduced_width)  # 全局特征图输入
+    first_layer_f = torch.rand(batch_size, 64, depth, 32, 32)  # 第一层输入特征图
 
     # 前向传播
     output = csa_module(x_l, x_g, first_layer_f)
 
     # 打印输入输出形状
-    print("Input shape of x_l:", x_l.shape)
-    print("Input shape of x_g:", x_g.shape)
-    print("Input shape of first_layer_f:", first_layer_f.shape)
-    print("Output shape:", output.shape)
+    print("x_l 的输入形状:", x_l.shape)
+    print("x_g 的输入形状:", x_g.shape)
+    print("first_layer_f 的输入形状:", first_layer_f.shape)
+    print("输出形状:", output.shape)

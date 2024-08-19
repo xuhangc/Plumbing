@@ -1,177 +1,169 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from axial import AxialAttention
+from MSCAA import MSCAAttention
+from example import chuanlian, binglian
+from EFF2d import EFF
+from Dysample import DySample
+from HWD import Down_wt
+#UNet
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+class DepthWiseConv2d(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=1, stride=1, padding=0, dilation=1, bias=False):
+        super(DepthWiseConv2d, self).__init__()
 
-class conv_block(nn.Module):
-    def __init__(self, ch_in, ch_out):
-        """
-        定义卷积块，用于构建U-Net中的卷积层部分。
+        self.conv1 = nn.Conv2d(in_channels, in_channels, kernel_size, stride, padding, dilation, groups=in_channels,
+                               bias=bias)
+        self.pointwise = nn.Conv2d(in_channels, out_channels, 1, 1, 0, 1, 1, bias=bias)
 
-        参数：
-            ch_in (int)：输入通道数。
-            ch_out (int)：输出通道数。
-        """
-        super(conv_block, self).__init__()
-        # 定义卷积块，包括卷积、批归一化和ReLU激活函数
-        self.conv = nn.Sequential(
-            nn.Conv2d(ch_in, ch_out, kernel_size=3, stride=1, padding=1, bias=True),
-            nn.BatchNorm2d(ch_out),
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.pointwise(x)
+        return x
+
+class DoubleConv(nn.Module):
+    """(convolution => [BN] => ReLU) * 2"""
+
+    def __init__(self, in_channels, out_channels):
+        super(DoubleConv, self).__init__()
+        self.double_conv = nn.Sequential(
+            DepthWiseConv2d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True),
-            nn.Conv2d(ch_out, ch_out, kernel_size=3, stride=1, padding=1, bias=True),
-            nn.BatchNorm2d(ch_out),
+            DepthWiseConv2d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True)
         )
 
     def forward(self, x):
-        """
-        前向传播函数。
-
-        参数：
-            x (tensor)：输入张量。
-
-        返回：
-            tensor：经过卷积块处理后的张量。
-        """
-        x = self.conv(x)
-        return x
+        return self.double_conv(x)
 
 
-class up_conv(nn.Module):
-    def __init__(self, ch_in, ch_out):
-        """
-        定义上采样卷积块，用于构建U-Net中的上采样部分。
+class Down(nn.Module):
+    """Downscaling with maxpool then double conv"""
 
-        参数：
-            ch_in (int)：输入通道数。
-            ch_out (int)：输出通道数。
-        """
-        super(up_conv, self).__init__()
-        # 定义上采样卷积块，包括上采样、卷积、批归一化和ReLU激活函数
-        self.up = nn.Sequential(
-            nn.Upsample(scale_factor=2),
-            nn.Conv2d(ch_in, ch_out, kernel_size=3, stride=1, padding=1, bias=True),
-            nn.BatchNorm2d(ch_out),
-            nn.ReLU(inplace=True)
+    def __init__(self, in_channels, out_channels):
+        super(Down, self).__init__()
+
+        self.maxpool_conv = nn.Sequential(
+            # nn.MaxPool2d(2),
+            Down_wt(in_ch=in_channels, out_ch=out_channels),
+            DoubleConv(out_channels, out_channels)
+            # binglian(in_channels=out_channels, out_channels=out_channels)
         )
 
     def forward(self, x):
-        """
-        前向传播函数。
-
-        参数：
-            x (tensor)：输入张量。
-
-        返回：
-            tensor：经过上采样卷积块处理后的张量。
-        """
-        x = self.up(x)
-        return x
+        return self.maxpool_conv(x)
 
 
-class U_Net(nn.Module):
-    def __init__(self, img_ch=3, output_ch=1):
-        """
-        定义U-Net模型。
+class Up(nn.Module):
+    """Upscaling then double conv"""
 
-        参数：
-            img_ch (int)：输入图像的通道数，默认为3（RGB图像）。
-            output_ch (int)：输出图像的通道数，默认为1。
-        """
-        super(U_Net, self).__init__()
+    def __init__(self, in_channels, out_channels, bilinear=True):
+        super(Up, self).__init__()
 
-        self.Maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.eff_module = EFF(in_dim=in_channels // 2, is_bottom=False)
 
+        # if bilinear, use the normal convolutions to reduce the number of channels
+        if bilinear:
+            # self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+            self.up = DySample(in_channels // 2)
+            self.conv = DoubleConv(in_channels, out_channels)
+        else:
+            self.up = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2, stride=2)
+            self.conv = DoubleConv(in_channels, out_channels)
 
-        # 定义U-Net的编码部分
-        self.Conv1 = conv_block(ch_in=img_ch, ch_out=64)
-        self.Conv2 = conv_block(ch_in=64, ch_out=128)
-        self.Conv3 = conv_block(ch_in=128, ch_out=256)
-        self.Conv4 = conv_block(ch_in=256, ch_out=512)
-        self.Conv5 = conv_block(ch_in=512, ch_out=1024)
+    def forward(self, x1, x2):
+        # print(x2.shape)
+        # x1 = self.up(x1)
+        # print(x1.shape)
+        # input is CHW
+        diffY = x2.size()[2] - x1.size()[2]
+        diffX = x2.size()[3] - x1.size()[3]
 
-        # 定义U-Net的解码部分
-        self.Up5 = up_conv(ch_in=1024, ch_out=512)
-        self.Up_conv5 = conv_block(ch_in=1024, ch_out=512)
-
-        self.Up4 = up_conv(ch_in=512, ch_out=256)
-        self.Up_conv4 = conv_block(ch_in=512, ch_out=256)
-
-        self.Up3 = up_conv(ch_in=256, ch_out=128)
-        self.Up_conv3 = conv_block(ch_in=256, ch_out=128)
-
-        self.Up2 = up_conv(ch_in=128, ch_out=64)
-        self.Up_conv2 = conv_block(ch_in=128, ch_out=64)
-
-        # 最后的1x1卷积层用于输出
-        self.Conv_1x1 = nn.Conv2d(64, output_ch, kernel_size=1, stride=1, padding=0)
-
-        self.avial1 = AxialAttention(in_planes=64, out_planes=64, groups=1, kernel_size=224, stride=1, bias=False, width=False)
+        x1 = nn.functional.pad(x1, [diffX // 2, diffX - diffX // 2,
+                                    diffY // 2, diffY - diffY // 2])
+        # print(x1.shape)
+        # x = torch.cat([x2, x1], dim=1)
+        x = self.eff_module(x1, x2)
+        # print(x.shape)
+        return self.conv(x)
 
 
-#在forward里用模块
+class OutConv(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(OutConv, self).__init__()
+        self.conv = DepthWiseConv2d(in_channels, out_channels, kernel_size=1)
+
     def forward(self, x):
-        """
-        前向传播函数。
-
-        参数：
-            x (tensor)：输入张量。
-
-        返回：
-            tensor：经过U-Net模型处理后的张量。
-        """
-        x1 = self.Conv1(x)
-        print(x1.shape)
-        x1 = self.avial1(x1)#加在这里
-        print(x1.shape)
-        x2 = self.Maxpool(x1)
-
-        x2 = self.Conv2(x2)
-        x3 = self.Maxpool(x2)
-
-        x3 = self.Conv3(x3)
-        x4 = self.Maxpool(x3)
-
-        x4 = self.Conv4(x4)
-        x5 = self.Maxpool(x4)
-
-        x5 = self.Conv5(x5)
+        return self.conv(x)
 
 
+class UNet(nn.Module):
+    def __init__(self, n_channels, n_classes, bilinear=True):
+        super(UNet, self).__init__()
+        self.n_channels = n_channels
+        self.n_classes = n_classes
+        self.bilinear = bilinear
 
-        # 解码路径
-        d5 = self.Up5(x5)
-        d5 = torch.cat((x4, d5), dim=1)
-        d5 = self.Up_conv5(d5)
+        self.inc = DoubleConv(n_channels, 64)
+        self.down1 = Down(64, 128)
+        self.down2 = Down(128, 256)
+        self.down3 = Down(256, 512)
+        self.down4 = Down(512, 512)
+        self.up1 = Up(1024, 256, bilinear)
+        self.up2 = Up(512, 128, bilinear)
+        self.up3 = Up(256, 64, bilinear)
+        self.up4 = Up(128, 64, bilinear)
+        self.outc = OutConv(64, n_classes)
 
-        d4 = self.Up4(d5)
-        d4 = torch.cat((x3, d4), dim=1)
-        d4 = self.Up_conv4(d4)
-
-        d3 = self.Up3(d4)
-        d3 = torch.cat((x2, d3), dim=1)
-        d3 = self.Up_conv3(d3)
+        # self.msca1 = MSCAAttention(in_channels=3)
+        # self.msca2 = MSCAAttention(in_channels=64)
 
 
-        d2 = self.Up2(d3)
-        d2 = torch.cat((x1, d2), dim=1)
-        d2 = self.Up_conv2(d2)
+    def forward(self, x):
+        # print(x.shape)
+        x1 = self.inc(x)
+        # print(x1.shape)
+        x2 = self.down1(x1)
+        # print(x2.shape)
+        x3 = self.down2(x2)
+        # print(x3.shape)
+        x4 = self.down3(x3)
+        # print(x4.shape)
+        x5 = self.down4(x4)
+        # print(x5.shape)
+        x = self.up1(x5, x4)
+        # print(x.shape)
+        x = self.up2(x, x3)
+        # print(x.shape)
+        x = self.up3(x, x2)
+        # print(x.shape)
+        x = self.up4(x, x1)
+        # print(x.shape)
+        logits = self.outc(x)
+        # print(logits.shape)
+        return logits
 
-        d1 = self.Conv_1x1(d2)
-        # 使用softmax函数进行多分类任务中的输出
-        d1 = F.softmax(d1, dim=1)
 
-        return d1
+def count_param(model):
+    param_count = 0
+    for param in model.parameters():
+        param_count += param.view(-1).size()[0]
+    return param_count
 
 
 if __name__ == '__main__':
-    # 实例化U-Net模型并放置在GPU上
-    net = U_Net(1, 2).cuda()
-    # 创建输入张量
-    in1 = torch.randn(1, 1, 224, 224).cuda()
-    # 前向传播
-    out = net(in1)
-    # 输出张量大小
-    print(out.size())
+    # 创建网络模型实例。假设输入图像有3个通道，且我们的目标是二分类，则n_classes=2
+    model = UNet(n_channels=3, n_classes=2)
+
+    # 计算并打印模型参数数量
+    param = count_param(model)
+    print('UNet total parameters: %.2fM (%d)' % (param / 1e6, param))
+
+    # 打印模型结构
+    print(model)
+
+    # 测试模型输出
+    x = torch.randn(1, 3, 572, 572)  # Example input tensor
+    output = model(x)
+    # print(output.shape)  # Output tensor shape

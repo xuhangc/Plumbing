@@ -45,6 +45,10 @@ FeatUp(ICLR2024): 一个与任务和模型无关的框架，用于恢复深层�
 
 这些模块可用于神经网络架构中对输入特征图进行下采样。
 """
+import torch
+import torch.nn.functional as F
+from kornia.filters import gaussian_blur2d
+
 
 class SimpleDownsampler(torch.nn.Module):
 
@@ -57,9 +61,9 @@ class SimpleDownsampler(torch.nn.Module):
         super().__init__(*args, **kwargs)
         self.kernel_size = kernel_size
         self.final_size = final_size
-        self.kernel_params = torch.nn.Parameter(torch.ones(kernel_size, kernel_size).cuda())
+        self.kernel_params = torch.nn.Parameter(torch.ones(kernel_size, kernel_size))
 
-    def forward(self, imgs):
+    def forward(self, imgs, guidance):
         b, c, h, w = imgs.shape
         input_imgs = imgs.reshape(b * c, 1, h, w)
         stride = (h - self.kernel_size) // (self.final_size - 1)
@@ -88,10 +92,10 @@ class AttentionDownsampler(torch.nn.Module):
                                     + .01 * torch.randn(kernel_size, kernel_size).cuda())
         self.blur_attn = blur_attn
 
-    def forward_attention(self, feats):
+    def forward_attention(self, feats, guidance):
         return self.attention_net(feats.permute(0, 2, 3, 1)).squeeze(-1).unsqueeze(1)
 
-    def forward(self, hr_feats):
+    def forward(self, hr_feats, guidance):
         b, c, h, w = hr_feats.shape
 
         if self.blur_attn:

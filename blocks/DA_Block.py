@@ -1,12 +1,12 @@
 from torch import nn
 import torch
-from torch.nn import Module, Conv2d, Parameter, Softmax
+from torch.nn import Module, Parameter, Softmax
 #DA-TransUNet: Integrating Spatial and Channel Dual Attention with Transformer U-Net for Medical Image Segmentation
 #https://arxiv.org/abs/2310.12570
 
-class SeparableConv2d(nn.Module):
+class DepthWiseConv2d(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=1, stride=1, padding=0, dilation=1, bias=False):
-        super(SeparableConv2d, self).__init__()
+        super(DepthWiseConv2d, self).__init__()
 
         self.conv1 = nn.Conv2d(in_channels, in_channels, kernel_size, stride, padding, dilation, groups=in_channels,
                                bias=bias)
@@ -17,17 +17,6 @@ class SeparableConv2d(nn.Module):
         x = self.pointwise(x)
         return x
 
-class DepthWiseConv2d(nn.Module):
-    def __init__(self, dim_in, dim_out, kernel_size=3, padding=1, stride=1, dilation=1):
-        super().__init__()
-
-        self.conv1 = nn.Conv2d(dim_in, dim_in, kernel_size=kernel_size, padding=padding,
-                               stride=stride, dilation=dilation, groups=dim_in)
-        self.norm_layer = nn.GroupNorm(4, dim_in)
-        self.conv2 = nn.Conv2d(dim_in, dim_out, kernel_size=1)
-
-    def forward(self, x):
-        return self.conv2(self.norm_layer(self.conv1(x)))
 
 class PAM_Module(Module):
     """ Position attention module"""
@@ -37,9 +26,9 @@ class PAM_Module(Module):
         super(PAM_Module, self).__init__()
         self.chanel_in = in_dim
 
-        self.query_conv = SeparableConv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
-        self.key_conv = SeparableConv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
-        self.value_conv = SeparableConv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
+        self.query_conv = DepthWiseConv2d(in_dim, in_dim, kernel_size=1)
+        self.key_conv = DepthWiseConv2d(in_dim, in_dim, kernel_size=1)
+        self.value_conv = DepthWiseConv2d(in_dim, in_dim, kernel_size=1)
         self.gamma = Parameter(torch.zeros(1))
 
         self.softmax = Softmax(dim=-1)
@@ -115,12 +104,12 @@ class DA_Block(nn.Module):
         self.conv52 = nn.Sequential(DepthWiseConv2d(inter_channels, inter_channels, 3, padding=1),
                                     nn.ReLU())
 
-        self.conv6 = nn.Sequential(nn.Dropout2d(0.05, False), SeparableConv2d(inter_channels, in_channels, 1),
+        self.conv6 = nn.Sequential(nn.Dropout2d(0.05, False), DepthWiseConv2d(inter_channels, in_channels, 1),
                                    nn.ReLU())
-        self.conv7 = nn.Sequential(nn.Dropout2d(0.05, False), SeparableConv2d(inter_channels, in_channels, 1),
+        self.conv7 = nn.Sequential(nn.Dropout2d(0.05, False), DepthWiseConv2d(inter_channels, in_channels, 1),
                                    nn.ReLU())
 
-        self.conv8 = nn.Sequential(nn.Dropout2d(0.05, False), SeparableConv2d(in_channels, in_channels, 1),
+        self.conv8 = nn.Sequential(nn.Dropout2d(0.05, False), DepthWiseConv2d(in_channels, in_channels, 1),
                                    nn.ReLU())
 
     def forward(self, x):
@@ -140,8 +129,8 @@ class DA_Block(nn.Module):
 
         return sasc_output
 if __name__ == '__main__':
-    input_1 = torch.randn(1, 128, 128, 128).cuda()
+    input_1 = torch.randn(1, 64, 64, 64).cuda()
     print(input_1.shape)
-    block = DA_Block(128).cuda()
+    block = DA_Block(64).cuda()
     output = block(input_1).cuda()
     print(output.shape)

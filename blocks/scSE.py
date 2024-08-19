@@ -18,19 +18,19 @@ scSE：该模块结合了通道方向和空间方向的挤压和激励，通过�
 
 class cSE(nn.Module):
 
-    def __init__(self, in_channel):
+    def __init__(self, channel, reduction=2):
         super().__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Conv2d(in_channel, 1, kernel_size=1, bias=False)
-        self.relu = nn.ReLU(inplace=True)  # Adding ReLU activation
+        self.fc = nn.Sequential(
+            nn.Conv2d(channel, channel // reduction, kernel_size=1, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(channel // reduction, channel, kernel_size=1, bias=False),
+            nn.Sigmoid()
+        )
 
     def forward(self, x):
-        b, c, _, _ = x.size()
         y = self.avg_pool(x)
         y = self.fc(y)
-        y = self.relu(y)  # Applying ReLU activation
-        y = nn.functional.interpolate(y, size=(x.size(2), x.size(3)),
-                                      mode='nearest')  # Resize y to match x's spatial dimensions
         return x * y.expand_as(x)
 
 class sSE(nn.Module):

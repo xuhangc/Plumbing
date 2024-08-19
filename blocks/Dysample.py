@@ -89,6 +89,6 @@ class DySample(nn.Module):
 
 
 if __name__ == '__main__':
-    x = torch.rand(2, 64, 4, 7)
-    dys = DySample(64)
+    x = torch.rand(1, 512, 70, 70)
+    dys = DySample(512)
     print(dys(x).shape)
